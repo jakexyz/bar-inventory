@@ -78,12 +78,32 @@ class Item(db.Model):
         return math.ceil(needed / self.case_size)
 
 # --- Lazy DB init (avoid import-time create_all) ---
-@app.before_first_request
-def init_db():
-    try:
-        db.create_all()
-    except Exception:
-        app.logger.exception('DB init skipped due to error')
+import threading
+
+_init_lock = threading.Lock()
+_db_inited = False
+
+@app.before_request
+def _ensure_db_initialized():
+    global _db_inited
+    if _db_inited:
+        return
+    with _init_lock:
+        if _db_inited:
+            return
+        try:
+            db.create_all()
+            # Optional: gated seeding if you ever need it
+            if os.environ.get('SEED_ON_START') == '1':
+                try:
+                    # put your seeding here (e.g., import CSV if tables empty)
+                    pass
+                except Exception:
+                    app.logger.exception('Auto-seed failed')
+        except Exception:
+            app.logger.exception('DB init skipped due to error')
+        _db_inited = True
+
 
 # ---------- Views ----------
 @app.route('/')
