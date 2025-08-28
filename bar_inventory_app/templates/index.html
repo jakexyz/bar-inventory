@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <form class="row g-2 flex-grow-1" method="get">
+    <div class="col-md-4">
+      <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Search by name, category, vendor">
+    </div>
+    <div class="col-md-3">
+      <select class="form-select" name="vendor">
+        <option value="">All Vendors</option>
+        {% for v in vendors %}
+          <option value="{{ v }}" {% if selected_vendor == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select class="form-select" name="category">
+        <option value="">All Categories</option>
+        {% for c in categories %}
+          <option value="{{ c }}" {% if selected_category == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" name="to_order" value="1" id="to_order" {% if only_to_order %}checked{% endif %}>
+        <label class="form-check-label" for="to_order">
+          Show only items to order
+        </label>
+      </div>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary w-100">Filter</button>
+    </div>
+    <div class="col-md-3">
+      <a class="btn btn-outline-success w-100" href="{{ url_for('order_excel', q=q, vendor=selected_vendor, category=selected_category) }}">Download Excel (To Order)</a>
+    </div>
+    <div class="col-md-3">
+      <a class="btn btn-outline-secondary w-100" href="{{ url_for('order_excel', q=q, vendor=selected_vendor, category=selected_category, all=1) }}">Download Excel (All Items)</a>
+    </div>
+  </form>
+  <a href="{{ url_for('new_item') }}" class="btn btn-success ms-2">+ New Item</a>
+</div>
+
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Category</th>
+      <th>On Hand (units)</th>
+      <th>Unit</th>
+      <th>Case Size</th>
+      <th>Par (units)</th>
+      <th>Need (units)</th>
+      <th>Order (cases)</th>
+      <th>Vendor</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for i in items %}
+      {% set need = i.needed_units() %}
+      {% set order_cases = i.cases_to_order() %}
+      {% set par_units = i.par_in_units() %}
+      <tr class="{% if need is not none and need > 0 %}table-warning{% elif need is not none and need <= 0 %}table-light{% endif %}">
+        <td><div class="fw-semibold">{{ i.name }}</div>{% if i.notes %}<div class="text-muted small">{{ i.notes }}</div>{% endif %}</td>
+        <td>{{ i.category }}</td>
+        <td>{{ i.current_units }}</td>
+        <td>{{ i.unit }}</td>
+        <td>{{ i.case_size }}</td>
+        <td>{{ par_units if par_units is not none else '-' }}</td>
+        <td>{{ need if need is not none else '-' }}</td>
+        <td>{% if order_cases > 0 %}<span class="badge bg-danger">{{ order_cases }}</span>{% else %}<span class="badge bg-success">0</span>{% endif %}</td>
+        <td>{{ i.vendor or '-' }}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('edit_item', item_id=i.id) }}">Edit</a>
+          <form action="{{ url_for('delete_item', item_id=i.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this item?');">
+            <button class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if items|length == 0 %}
+  <div class="text-center text-muted py-5">No items yet. Click “New Item” or use Import to load your list.</div>
+{% endif %}
+{% endblock %}

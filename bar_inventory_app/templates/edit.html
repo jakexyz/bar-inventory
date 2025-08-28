@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">{{ 'Edit Item' if item else 'New Item' }}</h4>
+<form method="post" class="row g-3">
+  <div class="col-md-4">
+    <label class="form-label">Name</label>
+    <input name="name" class="form-control" value="{{ item.name if item else '' }}" required>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Category (Spirit)</label>
+    <input name="category" class="form-control" value="{{ item.category if item else 'Spirits' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Unit</label>
+    <input name="unit" class="form-control" value="{{ item.unit if item else 'bottle' }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Vendor</label>
+    <input name="vendor" class="form-control" value="{{ item.vendor if item else '' }}">
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Case Size</label>
+    <input name="case_size" type="number" min="0" class="form-control" value="{{ item.case_size if item else 0 }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Par (cases)</label>
+    <input name="par_cases" type="number" min="0" class="form-control" value="{{ item.par_cases if item and item.par_cases is not none else '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Par (units)</label>
+    <input name="par_units" type="number" min="0" class="form-control" value="{{ item.par_units if item and item.par_units is not none else '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">On Hand (units)</label>
+    <input name="current_units" type="number" min="0" class="form-control" value="{{ item.current_units if item else 0 }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Cost / Case ($)</label>
+    <input name="cost_per_case" type="number" step="0.01" class="form-control" value="{{ item.cost_per_case if item and item.cost_per_case is not none else '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Lead Time (days)</label>
+    <input name="lead_time_days" type="number" min="0" class="form-control" value="{{ item.lead_time_days if item and item.lead_time_days is not none else '' }}">
+  </div>
+  <div class="col-md-12">
+    <label class="form-label">Notes</label>
+    <textarea name="notes" class="form-control" rows="2">{{ item.notes if item and item.notes else '' }}</textarea>
+  </div>
+  <div class="col-12">
+    <button class="btn btn-primary">Save</button>
+    <a class="btn btn-link" href="{{ url_for('index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

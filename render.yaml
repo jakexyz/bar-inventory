@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: bar-inventory
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0:10000 bar_inventory_app.app:app
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SKIP_SEED
+        value: '1'
+      - key: SECRET_KEY
+        sync: false

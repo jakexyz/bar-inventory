@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">Import Items (CSV)</h4>
+<p class="text-muted">CSV header must be: <code>name,category,unit,case_size,par_cases,par_units,current_units,vendor,cost_per_case,lead_time_days,notes</code></p>
+<form method="post" enctype="multipart/form-data" class="d-flex gap-3 align-items-center">
+  <input type="file" name="file" class="form-control" accept=".csv" required>
+  <button class="btn btn-primary">Import</button>
+</form>
+<hr>
+<a class="btn btn-outline-danger" href="{{ url_for('admin_dedupe') }}">De-duplicate Items</a>
+<small class="text-muted ms-2">Merges duplicates by Vendor + Category + Name (case-insensitive).</small>
+{% endblock %}
