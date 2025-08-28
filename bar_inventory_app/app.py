@@ -1,20 +1,41 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import math, csv, io, os
+from sqlalchemy import text
+import math, csv, io, os, time
 from collections import defaultdict
 
 app = Flask(__name__)
 
-# --- Persistence (Render: set DATABASE_URL to Postgres Internal URL) ---
-db_url = os.environ.get('DATABASE_URL', 'sqlite:///inventory.db')   # local fallback
+# --- Secrets ---
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
+
+# --- Database URL (Render: set DATABASE_URL to your Postgres URL) ---
+db_url = os.environ.get('DATABASE_URL', 'sqlite:///inventory.db')  # local fallback
+
+# Normalize for SQLAlchemy/psycopg2
 if db_url.startswith('postgres://'):
     db_url = db_url.replace('postgres://', 'postgresql+psycopg2://', 1)
 elif db_url.startswith('postgresql://'):
     db_url = db_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
+
+# Enforce SSL on hosted Postgres
+if db_url.startswith('postgresql+psycopg2://') and 'sslmode=' not in db_url:
+    db_url += ('&' if '?' in db_url else '?') + 'sslmode=require'
+
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me')
+
+# Resilient connection pool
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,        # verify connection before using it
+    'pool_recycle': 300,          # avoid stale idle connections
+    'pool_size': 5,
+    'max_overflow': 10,
+    'connect_args': (
+        {'sslmode': 'require'} if db_url.startswith('postgresql+psycopg2://') else {}
+    ),
+}
 
 db = SQLAlchemy(app)
 
@@ -56,50 +77,13 @@ class Item(db.Model):
             return 0
         return math.ceil(needed / self.case_size)
 
-with app.app_context():
-    db.create_all()
-    # Seed from CSV once if DB empty (disable with SKIP_SEED=1)
-    if not os.environ.get('SKIP_SEED'):
-        try:
-            if db.session.query(Item).count() == 0:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                csv_path = os.path.join(base_dir, 'bar_inventory_import.csv')
-                if os.path.exists(csv_path):
-                    with open(csv_path, newline='', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        count = 0
-                        for row in reader:
-                            name_val = (row.get('name') or '').strip()
-                            if not name_val:
-                                continue
-                            category_val = (row.get('category') or 'Spirits').strip() or 'Spirits'
-                            vendor_val = (row.get('vendor') or None)
-                            # Skip if exists (case-insensitive triple key)
-                            exists = db.session.query(Item).filter(
-                                db.func.lower(Item.name)==name_val.lower(),
-                                db.func.lower(db.func.coalesce(Item.vendor,''))==(vendor_val or '').lower(),
-                                db.func.lower(db.func.coalesce(Item.category,''))==category_val.lower()
-                            ).first()
-                            if exists:
-                                continue
-                            item = Item(
-                                name=name_val,
-                                category=category_val,
-                                unit=(row.get('unit') or 'bottle').strip() or 'bottle',
-                                case_size=int(row.get('case_size') or 0) if (row.get('case_size') or '').strip() != '' else 0,
-                                par_cases=int(row.get('par_cases')) if (row.get('par_cases') or '').strip() != '' else None,
-                                par_units=int(row.get('par_units')) if (row.get('par_units') or '').strip() != '' else None,
-                                current_units=int(row.get('current_units') or 0),
-                                vendor=vendor_val,
-                                cost_per_case=float(row.get('cost_per_case')) if (row.get('cost_per_case') or '').strip() != '' else None,
-                                lead_time_days=int(row.get('lead_time_days')) if (row.get('lead_time_days') or '').strip() != '' else None,
-                                notes=row.get('notes') or None,
-                            )
-                            db.session.add(item); count += 1
-                        db.session.commit()
-                        print(f'Auto-seeded {count} items from CSV')
-        except Exception as e:
-            print('Auto-seed failed:', e)
+# --- Lazy DB init (avoid import-time create_all) ---
+@app.before_first_request
+def init_db():
+    try:
+        db.create_all()
+    except Exception:
+        app.logger.exception('DB init skipped due to error')
 
 # ---------- Views ----------
 @app.route('/')
@@ -283,10 +267,47 @@ def admin_dedupe():
     flash(f'Removed {removed} duplicates.', 'success')
     return redirect(url_for('index'))
 
-# Health page
+# --- Readiness & Health ---
+@app.route('/admin/ready')
+def admin_ready():
+    """DB-free readiness endpoint for Render health checks."""
+    return {'status': 'ok'}, 200
+
 @app.route('/admin/health')
 def admin_health():
-    from sqlalchemy import func
+    """
+    DB-connected health endpoint.
+    Returns 200 if DB is reachable and can run SELECT 1; 503 otherwise.
+    """
+    started = time.time()
+    try:
+        # Use a fresh connection to verify real connectivity (not a stale pooled handle)
+        with db.engine.connect() as conn:
+            # Optional: keep it very fast; ignore if unsupported
+            try:
+                conn.execute(text("SET LOCAL statement_timeout = 2000"))
+            except Exception:
+                pass
+            conn.execute(text("SELECT 1"))
+        duration_ms = int((time.time() - started) * 1000)
+        return {
+            'status': 'ok',
+            'db': 'connected',
+            'duration_ms': duration_ms
+        }, 200
+    except Exception as e:
+        app.logger.exception('DB health check failed')
+        duration_ms = int((time.time() - started) * 1000)
+        return {
+            'status': 'degraded',
+            'db': 'error',
+            'duration_ms': duration_ms,
+            'error': str(e)
+        }, 503
+
+# Optional: keep the old template-based metrics as a separate page
+@app.route('/admin/db-metrics')
+def admin_db_metrics():
     total = Item.query.count()
     missing_case = Item.query.filter((Item.case_size == None) | (Item.case_size == 0)).count()
     missing_par_cases = Item.query.filter(Item.par_cases == None).count()
